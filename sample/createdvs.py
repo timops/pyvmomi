@@ -15,7 +15,7 @@
 # limitations under the License.
 
 """
-Python program for listing the vms on an ESX / vCenter host
+Python script to create dVS.
 """
 
 from optparse import OptionParser, make_option
@@ -43,7 +43,7 @@ def GetArgs():
 
 def main():
    """
-   Simple command-line program for listing the virtual machines on a system.
+   Simple command-line program for creating a distributed virtual switch.
    """
 
    args = GetArgs()
