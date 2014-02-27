@@ -66,7 +66,7 @@ def main():
       root = content.rootFolder
       datacenter = content.rootFolder.childEntity[0]
       hosts = datacenter.networkFolder
-      mdvs = pyVmomi.vim.DVSConfigSpec(name='TransportA')
+      mdvs = pyVmomi.vim.DVSConfigSpec(name=args.vswitch_name)
       dvsconfig = pyVmomi.vim.DVSCreateSpec(configSpec=mdvs)
       hosts.CreateDVS_Task(dvsconfig) 
 
