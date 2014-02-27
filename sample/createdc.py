@@ -42,7 +42,7 @@ def GetArgs():
 
 def main():
    """
-   Simple command-line program for listing the virtual machines on a system.
+   Simple command-line program for creating a new Datacenter.
    """
 
    args = GetArgs()
