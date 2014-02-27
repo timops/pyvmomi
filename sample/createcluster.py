@@ -15,7 +15,7 @@
 # limitations under the License.
 
 """
-Python program for listing the vms on an ESX / vCenter host
+Python program for creating a cluster vCenter host
 """
 
 from optparse import OptionParser, make_option
