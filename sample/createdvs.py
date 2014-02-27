@@ -38,12 +38,21 @@ def GetArgs():
    parser.add_argument('-u', '--user', required=True, action='store', help='User name to use when connecting to host')
    parser.add_argument('-p', '--password', required=True, action='store', help='Password to use when connecting to host')
    parser.add_argument('-v', '--vswitch_name', required=True, action='store', help='Name of dvs to create')
+   parser.add_argument('-n', '--numports', required=True, action='store', help='Number of ports in portgroup')
    args = parser.parse_args()
    return args
 
+def FindVSwitch(vsw_all, match):
+   """
+   Find and return the managed object reference of the switch that was just created.
+   """
+   for vsw in vsw_all:
+      if vsw.name == match:
+         return vsw
+
 def main():
    """
-   Simple command-line program for creating a distributed virtual switch.
+   Simple command-line program for creating a distributed virtual switch and portgroup.
    """
 
    args = GetArgs()
@@ -65,12 +74,29 @@ def main():
       content = si.RetrieveContent()
       root = content.rootFolder
       datacenter = content.rootFolder.childEntity[0]
-      hosts = datacenter.networkFolder
+      networks = datacenter.networkFolder
       mdvs = pyVmomi.vim.DVSConfigSpec(name=args.vswitch_name)
       dvsconfig = pyVmomi.vim.DVSCreateSpec(configSpec=mdvs)
-      hosts.CreateDVS_Task(dvsconfig) 
+      networks.CreateDVS_Task(dvsconfig) 
 
       print "Creating dvs: ", args.vswitch_name
+
+      vsw_all = networks.childEntity
+
+      newdvs = FindVSwitch(vsw_all, args.vswitch_name)
+
+      pgname = "%s-PG" % (args.vswitch_name)
+
+      # earlyBinding - A free DistributedVirtualPort will be selected and assigned to a 
+      #    VirtualMachine when the virtual machine is reconfigured to connect to the portgroup. 
+      # ephemeral - A DistributedVirtualPort will be created and assigned to a VirtualMachine when 
+      #    the virtual machine is powered on, and will be deleted when the virtual machine is powered off. 
+      #    An ephemeral portgroup has no limit on the number of ports that can be a part of this portgroup.
+
+      pgconfig = pyVmomi.vim.DVPortgroupConfigSpec(name=pgname, numPorts=int(args.numports), type='earlyBinding')
+      newdvs.CreateDVPortgroup_Task(pgconfig)
+
+      print "Adding port group to dvs: ", args.vswitch_name
 
    except vmodl.MethodFault, e:
       print "Caught vmodl fault : " + e.msg
