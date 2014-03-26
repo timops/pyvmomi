@@ -42,13 +42,34 @@ def GetArgs():
    args = parser.parse_args()
    return args
 
-def FindVSwitch(vsw_all, match):
-   """
-   Find and return the managed object reference of the switch that was just created.
-   """
-   for vsw in vsw_all:
-      if vsw.name == match:
-         return vsw
+def AddHosts(nodes, newdvs):
+  hypervisors = []
+  dvsHostMember = []
+  pnicStr = 'vmnic1'
+  pnicspec = []
+
+  # this API is required to uniquely configure *each* physical NIC.
+  pnicspec.append(pyVmomi.vim.DistributedVirtualSwitchHostMemberPnicSpec(pnicDevice=pnicStr))
+
+  # pnicspec is an array of physical NICs, although in this example only one is added (see above).
+  pnic = pyVmomi.vim.DistributedVirtualSwitchHostMemberPnicBacking(pnicSpec=pnicspec)
+
+  for compute in nodes:
+    # both a cluster and a single hypervisor has a node attribute (array of hosts object),
+    #   so treat them the same
+    if hasattr(compute, 'host'):
+      for node in compute.host:
+        hypervisors.append(node)
+
+  # create a list of host object references (the ones that we wish to add to the DVS).
+  for esx in hypervisors:
+    print "[LOG]: adding hypervisor %s to the DVS" % (esx.name)
+    dvsHostMember.append(pyVmomi.vim.DistributedVirtualSwitchHostMemberConfigSpec(backing=pnic, host=esx, operation='add'))
+
+  dvsConfig = pyVmomi.vim.DVSConfigSpec(configVersion=newdvs.config.configVersion, host=dvsHostMember) 
+
+  # run it against the vCenter
+  task = newdvs.ReconfigureDvs_Task(dvsConfig)
 
 def main():
    """
@@ -74,29 +95,59 @@ def main():
       content = si.RetrieveContent()
       root = content.rootFolder
       datacenter = content.rootFolder.childEntity[0]
+      hosts = datacenter.hostFolder.childEntity
+
+      # create a new dvs
       networks = datacenter.networkFolder
       mdvs = pyVmomi.vim.DVSConfigSpec(name=args.vswitch_name)
+
+
       dvsconfig = pyVmomi.vim.DVSCreateSpec(configSpec=mdvs)
-      networks.CreateDVS_Task(dvsconfig) 
+      dvs_task = networks.CreateDVS_Task(dvsconfig)
 
       print "Creating dvs: ", args.vswitch_name
 
-      vsw_all = networks.childEntity
+      # 
+      # Create DVS and poll for status of creation.
+      # If it fails, exit because we can't really do anything else.
+      #
+      # Failure scenario is pretty verbose, but the details are there! :)
+      #
+      curr_state = ''
+      while (not dvs_task.info.result):
+        if (curr_state != str(dvs_task.info.state)):
+          curr_state = str(dvs_task.info.state)
+          print "Current status of creation - [%s]" % (curr_state)
+        if (curr_state == 'error'):
+          print "\n[ERROR]: failed to create dvs %s" % (args.vswitch_name)
+          print "reason - %s" % (dvs_task.info.error)
+          return -1
 
-      newdvs = FindVSwitch(vsw_all, args.vswitch_name)
+      newdvs = dvs_task.info.result
 
       pgname = "%s-PG" % (args.vswitch_name)
 
-      # earlyBinding - A free DistributedVirtualPort will be selected and assigned to a 
-      #    VirtualMachine when the virtual machine is reconfigured to connect to the portgroup. 
-      # ephemeral - A DistributedVirtualPort will be created and assigned to a VirtualMachine when 
-      #    the virtual machine is powered on, and will be deleted when the virtual machine is powered off. 
+      # earlyBinding - A free DistributedVirtualPort will be selected and assigned to a
+      #    VirtualMachine when the virtual machine is reconfigured to connect to the portgroup.
+      # ephemeral - A DistributedVirtualPort will be created and assigned to a VirtualMachine when
+      #    the virtual machine is powered on, and will be deleted when the virtual machine is powered off.
       #    An ephemeral portgroup has no limit on the number of ports that can be a part of this portgroup.
 
+      print "\nAdding port group to dvs: ", args.vswitch_name
       pgconfig = pyVmomi.vim.DVPortgroupConfigSpec(name=pgname, numPorts=int(args.numports), type='earlyBinding')
-      newdvs.CreateDVPortgroup_Task(pgconfig)
+      pg_task = newdvs.CreateDVPortgroup_Task(pgconfig)
 
-      print "Adding port group to dvs: ", args.vswitch_name
+      curr_state = ''
+      while (not pg_task.info.result):
+        if (curr_state != str(pg_task.info.state)):
+          curr_state = str(pg_task.info.state)
+          print "Current status of creation - [%s]" % (curr_state)
+        if (curr_state == 'error'):
+          print "\n[ERROR]: failed to add portgroup to dvs %s" % (args.vswitch_name)
+          print "reason - %s" % (pg_task.info.error)
+          return -1
+
+      AddHosts(hosts, newdvs)
 
    except vmodl.MethodFault, e:
       print "Caught vmodl fault : " + e.msg
